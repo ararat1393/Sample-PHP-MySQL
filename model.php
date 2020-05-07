@@ -73,8 +73,17 @@ class DB
      */
     public function __construct( $table = null )
     {
+        // TODO: Implement __construct() method.
         $this->connection(DB_HOST,DB_USER,DB_PASSWORD,DB_NAME);
         $this->init( $table );
+    }
+
+
+    public function __destruct()
+    {
+        // TODO: Implement __destruct() method.
+        if( is_resource($this->model) )
+            $this->model->close();
     }
 
     /**
