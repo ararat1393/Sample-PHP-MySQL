@@ -11,12 +11,31 @@ define( 'DB_PASSWORD', '' );
 define( 'DB_HOST', 'localhost' );
 /** Database Charset to use in creating database tables. */
 
-class BaseModel
+/** @var string $table */
+/** @var array $selectedColumns */
+/** @var string $query */
+/** @var string $error */
+/** @var array $_where */
+/** @var string $limit */
+/** @var string $orderBy */
+/** @var string $groupBy */
+/** @var string $action */
+/** @var string $sets */
+/** @var string $fields */
+/** @var string $values */
+/** @var string $condition */
+/** @var string $join */
+
+class DB
 {
     const SQL_ACTION_INSERT = 'INSERT INTO';
     const SQL_ACTION_UPDATE = 'UPDATE';
     const SQL_ACTION_DELETE = 'DELETE';
     const SQL_ACTION_SELECT = 'SELECT';
+    const SQL_INNER_JOIN = 'INNER JOIN';
+    const SQL_LEFT_JOIN = 'LEFT JOIN';
+    const SQL_RIGHT_JOIN = 'RIGHT JOIN';
+    const SQL_JOIN_ON = 'ON';
     const SQL_FROM = 'FROM';
     const SQL_WHERE = 'WHERE';
     const SQL_LIMIT = 'LIMIT';
@@ -34,17 +53,19 @@ class BaseModel
     private $model;
 
     private static $table;
-    private $selectedColumns;
+    private static $selectedColumns;
     private static $query;
-    private $_where = [];
-    private $limit;
-    private $orderBy;
-    private $groupBy;
-    private $action;
-    private $sets;
-    private $fields;
-    private $values;
-    private $condition;
+    private static $error;
+    private static $_where = [];
+    private static $limit;
+    private static $orderBy;
+    private static $groupBy;
+    private static $action;
+    private static $sets;
+    private static $fields;
+    private static $values;
+    private static $condition;
+    private static $join;
 
     /**
      * BaseModel constructor.
@@ -52,8 +73,8 @@ class BaseModel
      */
     public function __construct( $table = null )
     {
-        if( $table ) self::$table = $table;
         $this->connection(DB_HOST,DB_USER,DB_PASSWORD,DB_NAME);
+        $this->init( $table );
     }
 
     /**
@@ -77,12 +98,33 @@ class BaseModel
     }
 
     /**
+     * @param null $table
+     */
+    public function init( $table = null )
+    {
+        self::$table = $table;
+        self::$selectedColumns = [];
+        self::$query = "";
+        self::$error = "";
+        self::$_where = [];
+        self::$limit = "";
+        self::$orderBy = "";
+        self::$groupBy = "";
+        self::$action = "";
+        self::$sets = "";
+        self::$fields = "";
+        self::$values = "";
+        self::$condition = "";
+        self::$join = "";
+    }
+
+    /**
      * @param $tableName
      * @return $this
      */
-    public function table($tableName)
+    public static function table($tableName)
     {
-        return new BaseModel($tableName);
+        return new self($tableName);
     }
 
     /**
@@ -91,11 +133,11 @@ class BaseModel
      */
     public function select(Array $selectedColumns = [])
     {
-        $this->action = self::SQL_ACTION_SELECT;
+        self::$action = self::SQL_ACTION_SELECT;
         if(!empty($selectedColumns)){
-            $this->selectedColumns = implode(',',$selectedColumns);
+            self::$selectedColumns = implode(',',$selectedColumns);
         }else{
-            $this->selectedColumns = '*';
+            self::$selectedColumns = '*';
         }
         return $this;
     }
@@ -108,10 +150,10 @@ class BaseModel
      */
     public function where(String $key,String $operator, $value)
     {
-       if( !empty($this->condition) ){
-           $this->condition .= sprintf(" %s " , self::SQL_AND);
+       if( !empty(self::$condition) ){
+           self::$condition .= sprintf(" %s " , self::SQL_AND);
        }
-       $this->condition .= sprintf(" (`%s` %s '%s') " ,$key,$operator,$value);
+       self::$condition .= sprintf(" (`%s` %s '%s') " ,$key,$operator,$value);
        return $this;
     }
 
@@ -123,7 +165,8 @@ class BaseModel
      */
     public function orWhere(Array $conditions, $separator = self::SQL_AND )
     {
-        return $this->_where( $conditions , $separator , self::SQL_OR );
+        self::_where( $conditions , $separator , self::SQL_OR );
+        return $this;
     }
 
     /**
@@ -133,7 +176,8 @@ class BaseModel
      */
     public function andWhere( Array $conditions )
     {
-        return $this->_where( $conditions );
+        self::_where( $conditions );
+        return $this;
     }
 
     /**
@@ -145,10 +189,7 @@ class BaseModel
      */
     public function between(String $key,$value_1,$value_2)
     {
-        if( !empty($this->condition) ){
-            $this->condition .= sprintf(" %s " , self::SQL_AND);
-        }
-        $this->condition .= sprintf(" ( `%s` %s '%s' %s '%s') ",$key,self::SQL_BETWEEN,$value_1,self::SQL_AND,$value_2);
+        self::_between(self::SQL_BETWEEN,$key,$value_1,$value_2);
         return $this;
     }
 
@@ -161,49 +202,7 @@ class BaseModel
      */
     public function notBetween( String $key ,$value_1,$value_2 )
     {
-        if( !empty($this->condition) ){
-            $this->condition .= sprintf(" %s " , self::SQL_AND);
-        }
-        $this->condition .= sprintf(" ( `%s` %s '%s' %s '%s') ",$key,self::SQL_NOT_BETWEEN,$value_1,self::SQL_AND,$value_2);
-        return $this;
-    }
-
-    /**
-     * @param array $conditions
-     * @param $separator
-     * @param $operator
-     * @return $this
-     * @throws Exception
-     */
-    private function _where(Array $conditions, $separator = self::SQL_AND , $operator = self::SQL_AND )
-    {
-
-        if( !empty($this->condition) ){
-            $this->condition .=  sprintf(" %s ", $operator);
-        }
-        $this->_where = [];
-        foreach ($conditions as $condition ){
-            list($operator,$key,$values) = $condition;
-            if( in_array(strtolower($operator),['in','not in'])){
-                if(!is_array($values) ){
-                    throw new \Exception('value must be an array');
-                }else{
-                    $value = "";
-                    foreach ($values as $item){
-                        $value .= sprintf("'%s',", $item);
-                    }
-                    $value = substr($value, 0, -1);
-                    $this->_where[] = sprintf("`%s` %s (%s)",$key,$operator,$value);
-                }
-            }else{
-                if( !is_string($values)){
-                    throw new \Exception('value must be an string');
-                }else{
-                    $this->_where[] = sprintf("`%s` %s '%s'",$key,$operator,$values);
-                }
-            }
-        }
-        $this->condition .= " ( ".implode($separator,$this->_where) . " ) ";
+        self::_between(self::SQL_NOT_BETWEEN,$key,$value_1,$value_2);
         return $this;
     }
 
@@ -216,7 +215,7 @@ class BaseModel
         if( !in_array(strtoupper($order),[self::SQL_ASC,self::SQL_DESC]) ){
             $order = self::SQL_ASC;
         }
-        $this->orderBy = sprintf(" %s `%s` %s ",self::SQL_ORDER_BY,$key,$order);
+        self::$orderBy = sprintf(" %s `%s` %s ",self::SQL_ORDER_BY,$key,$order);
         return $this;
     }
 
@@ -226,7 +225,7 @@ class BaseModel
      */
     public function groupBy(String $key)
     {
-        $this->groupBy = sprintf(" %s `%s` ",self::SQL_GROUP_BY ,$key );
+        self::$groupBy = sprintf(" %s `%s` ",self::SQL_GROUP_BY ,$key );
         return $this;
     }
 
@@ -238,9 +237,9 @@ class BaseModel
      */
     public function limit(int $limit, int $offset = 0)
     {
-        if( !empty($this->limit) )
+        if( !empty(self::$limit) )
             throw new \Exception('Limit already installed');
-        $this->limit = sprintf(" %s %u,%u ",self::SQL_LIMIT, $offset , $limit );
+        self::$limit = sprintf(" %s %u,%u ",self::SQL_LIMIT, $offset , $limit );
         return $this;
     }
     /**
@@ -249,12 +248,12 @@ class BaseModel
      */
     public function one()
     {
-        if ($result = $this->model->query($this->_select())) {
+        if ($result = $this->model->query(self::_select())) {
             if ($result->num_rows > 0)
                 return $result->fetch_object();
         }
         else
-            throw new \Exception("Error description: " . $this->model->error);
+            self::$error = $this->model->error;
 
         return new \stdClass();
     }
@@ -265,10 +264,11 @@ class BaseModel
      */
     public function all()
     {
-        if( $result = $this->model->query($this->_select()) )
+        if( $result = $this->model->query(self::_select()) )
             return $result->fetch_all(MYSQLI_ASSOC);
         else
-            throw new \Exception("Error description: " . $this->model->error);
+            self::$error = $this->model->error;
+
         return [];
     }
 
@@ -279,26 +279,28 @@ class BaseModel
      */
     public function insert($values)
     {
-        if( $this->action )
+        if( self::$action )
             throw new \Exception("SQL action is already installed");
         if(empty($values))
             throw new \Exception("Value can't be empty");
 
-        $this->action = self::SQL_ACTION_INSERT;
+        self::$action = self::SQL_ACTION_INSERT;
 
         foreach($values as $column => $value){
-            $this->fields .= sprintf("`%s`,", $column);
-            $this->values .= sprintf("'%s',", addslashes($value));
+            self::$fields .= sprintf("`%s`,", $column);
+            self::$values .= sprintf("'%s',", addslashes($value));
         }
-        $this->fields = substr($this->fields, 0, -1);
-        $this->values = substr($this->values, 0, -1);
+        self::$fields = substr(self::$fields, 0, -1);
+        self::$values = substr(self::$values, 0, -1);
 
-        if( $this->model->query( $this->_insert() )){
+        if( $this->model->query( self::_insert() )){
             return $this->select()
                 ->where('id','=',$this->model->insert_id)
                 ->one();
+        }else{
+            self::$error = $this->model->error;
         }
-        return true;
+        return null;
     }
 
     /**
@@ -308,16 +310,20 @@ class BaseModel
      */
     public function update( Array $sets )
     {
-        if( $this->action )
+        if( self::$action )
             throw new \Exception("SQL action is already installed");
-        $this->action = self::SQL_ACTION_UPDATE;
+
+        self::$action = self::SQL_ACTION_UPDATE;
 
         foreach($sets as $column => $value){
-            $this->sets .= sprintf(" `%s`='%s',", $column , addslashes($value) );
+            self::$sets .= sprintf(" `%s`='%s',", $column , addslashes($value) );
         }
-        $this->sets = substr($this->sets, 0, -1);
 
-        if( $this->model->query( $this->_update())) return true;
+        self::$sets = substr(self::$sets, 0, -1);
+
+        if( $this->model->query( self::_update())) return true;
+
+        else self::$error = $this->model->error;
 
         return false;
     }
@@ -328,33 +334,144 @@ class BaseModel
      */
     public function delete()
     {
-        if( $this->action )
+        if( self::$action )
             throw new \Exception("SQL action is already installed");
-        $this->action = self::SQL_ACTION_DELETE;
 
-        if( $this->model->query( $this->_delete())) return true;
+        self::$action = self::SQL_ACTION_DELETE;
+
+        if( $this->model->query( self::_delete())) return true;
+
+        else self::$error = $this->model->error;
 
         return false;
     }
 
     /**
+     * @param $join | ex "Full"
+     * @param String $table | "posts"
+     * @param $relation_1 | ex "`users`.id"
+     * @param $relation_2   | ex "`posts`.user_id"
+     * @return $this
+     */
+    public function join($join = self::SQL_INNER_JOIN,String $table , String $relation_1,String $relation_2)
+    {
+        self::_join($join, $table ,$relation_1 ,$relation_2);
+        return $this;
+    }
+
+    /**
+     * @param String $table | "posts"
+     * @param String $relation_1 | ex "`users`.id"
+     * @param String $relation_2 | ex "`posts`.user_id"
+     * @return $this
+     */
+    public function leftJoin(String $table , String $relation_1,String $relation_2 )
+    {
+        self::_join(self::SQL_LEFT_JOIN , $table ,$relation_1 ,$relation_2);
+        return $this;
+    }
+
+    /**
+     * @param String $table | ex "posts"
+     * @param String $relation_1 | ex "`users`.id"
+     * @param String $relation_2 | ex "`posts`.user_id"
+     * @return $this
+     */
+    public function rightJoin(String $table , String $relation_1,String $relation_2)
+    {
+        self::_join(self::SQL_RIGHT_JOIN , $table ,$relation_1 ,$relation_2);
+        return $this;
+    }
+
+    /**
+     * @param $join
+     * @param $table
+     * @param $relation_1
+     * @param $relation_2
      * @return string
      */
-    private function _select()
+    public static function _join( $join ,$table , $relation_1 ,$relation_2 )
     {
-        self::$query = sprintf(" %s %s %s %s ",self::SQL_ACTION_SELECT,$this->selectedColumns,self::SQL_FROM,self::$table);
+        if( !empty(self::$join) ){
+            self::$join .= PHP_EOL;
+        }
+        return self::$join .= sprintf(" %s `%s` %s %s=%s ",$join,$table,self::SQL_JOIN_ON ,$relation_1,$relation_2);
+    }
 
-        if( $this->condition ){
-            self::$query .= sprintf(" %s %s ",self::SQL_WHERE , $this->condition );
+    /**
+     * @param $between
+     * @param $key
+     * @param $value_1
+     * @param $value_2
+     * @return string
+     */
+    public static function _between($between,$key,$value_1,$value_2)
+    {
+        if( !empty(self::$condition) ){
+            self::$condition .= sprintf(" %s " , self::SQL_AND);
         }
-        if( $this->groupBy ) {
-            self::$query .= sprintf(" %s ",$this->groupBy );
+        return self::$condition .= sprintf(" ( `%s` %s '%s' %s '%s') ",$key,$between,$value_1,self::SQL_AND,$value_2);
+    }
+
+    /**
+     * @param array $conditions
+     * @param $separator
+     * @param $operator
+     * @return string
+     * @throws Exception
+     */
+    private static function _where(Array $conditions, $separator = self::SQL_AND , $operator = self::SQL_AND )
+    {
+
+        if( !empty(self::$condition) ){
+            self::$condition .=  sprintf(" %s ", $operator);
         }
-        if( $this->orderBy ) {
-            self::$query .= sprintf(" %s ",$this->orderBy );
+        self::$_where = [];
+        foreach ($conditions as $condition ){
+            list($operator,$key,$values) = $condition;
+            if( in_array(strtolower($operator),['in','not in'])){
+                if(!is_array($values) ){
+                    throw new \Exception('value must be an array');
+                }else{
+                    $value = "";
+                    foreach ($values as $item){
+                        $value .= sprintf("'%s',", $item);
+                    }
+                    $value = substr($value, 0, -1);
+                    self::$_where[] = sprintf("`%s` %s (%s)",$key,$operator,$value);
+                }
+            }else{
+                if( !is_string($values)){
+                    throw new \Exception('value must be an string');
+                }else{
+                    self::$_where[] = sprintf("`%s` %s '%s'",$key,$operator,$values);
+                }
+            }
         }
-        if( $this->limit ) {
-            self::$query .= sprintf(" %s ",$this->limit );
+        return self::$condition .= sprintf(" (%s) ",implode($separator,self::$_where));
+    }
+
+    /**
+     * @return string
+     */
+    private static function _select()
+    {
+        self::$query = sprintf(" %s %s %s %s ",self::SQL_ACTION_SELECT,self::$selectedColumns,self::SQL_FROM,self::$table);
+
+        if( self::$join ){
+            self::$query .= sprintf("%s",self::$join);
+        }
+        if( self::$condition ){
+            self::$query .= sprintf(" %s %s ",self::SQL_WHERE , self::$condition );
+        }
+        if( self::$groupBy ) {
+            self::$query .= sprintf(" %s ",self::$groupBy );
+        }
+        if( self::$orderBy ) {
+            self::$query .= sprintf(" %s ",self::$orderBy );
+        }
+        if( self::$limit ) {
+            self::$query .= sprintf(" %s ",self::$limit );
         }
         return self::$query;
     }
@@ -362,19 +479,19 @@ class BaseModel
     /**
      * @return string
      */
-    public function _insert()
+    public static function _insert()
     {
-        return sprintf(" %s %s (%s) %s (%s) ",self::SQL_ACTION_INSERT , self::$table , $this->fields ,self::SQL_VALUES,$this->values);
+        return sprintf(" %s %s (%s) %s (%s) ",self::SQL_ACTION_INSERT , self::$table , self::$fields ,self::SQL_VALUES,self::$values);
     }
 
     /**
      * @return string
      */
-    public function  _delete()
+    public static function  _delete()
     {
         self::$query = sprintf(" %s  %s %s ",self::SQL_ACTION_DELETE,self::SQL_FROM,self::$table);
-        if( $this->condition ){
-            self::$query .= sprintf(" %s %s ",self::SQL_WHERE,$this->condition);
+        if( self::$condition ){
+            self::$query .= sprintf(" %s %s ",self::SQL_WHERE,self::$condition);
         }
         return self::$query;
     }
@@ -382,14 +499,14 @@ class BaseModel
     /**
      * @return string
      */
-    public function _update()
+    public static function _update()
     {
         self::$query = sprintf(" %s %s " ,self::SQL_ACTION_UPDATE , self::$table );
-        if( $this->sets ){
-            self::$query .= sprintf(" %s %s ",self::SQL_SET ,$this->sets );
+        if( self::$sets ){
+            self::$query .= sprintf(" %s %s ",self::SQL_SET ,self::$sets );
         }
-        if( $this->condition ){
-            self::$query .= sprintf(" %s %s ",self::SQL_WHERE,$this->condition );
+        if( self::$condition ){
+            self::$query .= sprintf(" %s %s ",self::SQL_WHERE,self::$condition );
         }
         return self::$query;
     }
@@ -397,20 +514,20 @@ class BaseModel
     /**
      * @return string
      */
-    public function query()
+    public static function query()
     {
-        switch ($this->action) {
+        switch (self::$action) {
             case self::SQL_ACTION_SELECT:
-                self::$query = $this->_select();
+                self::$query = self::_select();
                 break;
             case self::SQL_ACTION_INSERT:
-                self::$query = $this->_insert();
+                self::$query = self::_insert();
                 break;
             case self::SQL_ACTION_DELETE:
-                self::$query = $this->_delete();
+                self::$query = self::_delete();
                 break;
             case self::SQL_ACTION_UPDATE:
-                self::$query = $this->_update();
+                self::$query = self::_update();
                 break;
         }
         return self::$query;
@@ -419,35 +536,29 @@ class BaseModel
     /**
      * @return mixed
      */
-    public function error()
+    public static function error()
     {
-        return  $this->model->error;
+        return  self::$error;
     }
 }
-$db = new BaseModel();
-$result1 = $db->table('users')
-    ->select(['name','email as E_Mail'])
+$db = new DB('users');
+$result1 = $db->select()
+    ->leftJoin('social_accounts','users.id','social_accounts.user_id')
     ->where('id','!=',18)
     ->andWhere([
-        ['in','name',['Jone','Doe','Admin']]
+        ['in','name',['Jone','Doe','Admin','Արարատ Մարտիրոսյան']]
     ])
     ->orWhere([
         ['like','email','ararat.martirosyan13@gmail.com']
     ])
-    ->between('created_at','2020-05-01 14:58:51','2020-05-02 14:58:51')
-    ->notBetween('created_at','2020-05-01 14:58:51','2020-05-02 14:58:51')
-    ->limit(14)
+    ->limit(2)
     ->orderBy('id','DESC')
-    ->one();
-var_dump($db->error());
+    ->all();
+//var_dump($db->error());
 var_dump($result1);
-$result2 = $db->table('users')->insert(['name'=>'test','email'=>'test@gmail.com','password'=>'test']);
-var_dump($db->error());
-var_dump($result2);
-$result3 = $db->table('users')->where('name','=','test8')->delete();
-var_dump($db->error());
-var_dump($result3);
-$result4 = $db->table('users')->where('name','=','test8')->update(['name' => 'test9']);
-var_dump($db->error());
-var_dump($result4);die;
+var_dump(DB::query());
+//var_dump($db);
+$result2 =DB::table('users')->insert(['name'=>'test','email'=>'test@gmail.com','password'=>'test']);
+var_dump(DB::error());
+//var_dump($result2);die;
 
