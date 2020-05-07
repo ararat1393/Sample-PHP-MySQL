@@ -262,7 +262,7 @@ class DB
      * @return mixed
      * @throws \Exception
      */
-    public function all()
+    public function asArray()
     {
         if( $result = $this->model->query($this->_select()) )
             return $result->fetch_all(MYSQLI_ASSOC);
@@ -270,6 +270,23 @@ class DB
             $this->error = $this->model->error;
 
         return [];
+    }
+
+    /**
+     * @return array
+     */
+    public function all()
+    {
+        $response = array();
+        if ($result = $this->model->query($this->_select())) {
+            while ($obj = $result->fetch_object()) {
+                $response[] = $obj;
+            }
+            $result->close();
+        }else
+            $this->error = $this->model->error;
+
+        return $response;
     }
 
     /**
@@ -293,7 +310,7 @@ class DB
         $this->fields = substr($this->fields, 0, -1);
         $this->values = substr($this->values, 0, -1);
 
-        if( $this->model->query( $this->_insert() )){
+        if( $result = $this->model->query( $this->_insert() )){
             return $this->select()
                 ->where('id','=',$this->model->insert_id)
                 ->one();
@@ -579,6 +596,7 @@ $result2 = DB::table('users')->insert(['name'=>'test','email'=>'tes000t@gmail.co
 var_dump($result2->error());
 var_dump($result2->query());
 var_dump($result1->all());
+var_dump($result1->asArray());
 //var_dump(DB::query());
 var_dump($result1->query());die;
 
